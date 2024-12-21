@@ -93,6 +93,54 @@ class MultiLayerGRUModel:
             print(f"Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(X_train):.4f}")
 
 
+class AdamOptimizer:
+    def __init__(self, params, lr=0.01, beta1=0.9, beta2=0.999, epsilon=1e-8):
+        self.params = params
+        self.lr = lr
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        self.m = {key: np.zeros_like(value) for key, value in params.items()}
+        self.v = {key: np.zeros_like(value) for key, value in params.items()}
+        self.t = 0
+
+    def update(self, grads):
+        self.t += 1
+        for key in self.params:
+            self.m[key] = self.beta1 * self.m[key] + (1 - self.beta1) * grads[key]
+            self.v[key] = self.beta2 * self.v[key] + (1 - self.beta2) * (grads[key] ** 2)
+            m_hat = self.m[key] / (1 - self.beta1 ** self.t)
+            v_hat = self.v[key] / (1 - self.beta2 ** self.t)
+            self.params[key] -= self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)
+
+
+class MultiLayerGRUModelWithAdam(MultiLayerGRUModel):
+    def __init__(self, input_dim, hidden_dims, output_dim, lr):
+        super().__init__(input_dim, hidden_dims, output_dim, lr)
+        self.optimizer = AdamOptimizer(
+            params={"W_out": self.W_out, "b_out": self.b_out}, lr=lr
+        )
+
+    def train(self, X_train, y_train, epochs):
+        for epoch in range(epochs):
+            total_loss = 0
+            for i in range(len(X_train)):
+                X = X_train[i:i+1]
+                y_true = y_train[i:i+1]
+                y_pred, last_hidden_state = self.forward(X)
+                loss = self.computeLoss(y_pred, y_true)
+                total_loss += loss
+
+                d_loss = 2 * (y_pred - y_true) / y_true.size
+                grads = {
+                    "W_out": np.dot(last_hidden_state.T, d_loss),
+                    "b_out": np.sum(d_loss, axis=0),
+                }
+
+                self.optimizer.update(grads)
+
+            print(f"Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(X_train):.4f}")
+
 ticker = 'AAPL'
 data = yf.download(ticker, period='5y', interval='1d')
 prices = data['Close'].values.reshape(-1, 1)
@@ -117,8 +165,8 @@ hidden_dims = [128, 128, 128]
 output_dim = 1
 learning_rate = 0.01
 
-multi_layer_model = MultiLayerGRUModel(input_dim, hidden_dims, output_dim, lr=learning_rate)
-multi_layer_model.train(X_train, y_train, epochs=10)
+multi_layer_model = MultiLayerGRUModelWithAdam(input_dim, hidden_dims, output_dim, lr=learning_rate)
+multi_layer_model.train(X_train, y_train, epochs=1)
 
 # Predictions and Visualization
 y_pred_scaled = [multi_layer_model.forward(X_test[i:i+1])[0] for i in range(len(X_test))]
